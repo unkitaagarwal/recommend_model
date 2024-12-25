@@ -110,7 +110,7 @@ class MealRecommender:
 
 def load_data() -> pd.DataFrame:
     try:
-        df = pd.read_csv('test01.csv')
+        df = pd.read_csv('foodlistwtags.csv')
         df = df.fillna('')
         df['allergy'] = df['allergy'].fillna("[]")
         df['image_url'] = df['image_url'].fillna("https://example.com/placeholder.jpg")
