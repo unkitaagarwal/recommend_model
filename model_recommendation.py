@@ -113,7 +113,7 @@ def load_data() -> pd.DataFrame:
         df = pd.read_csv('foodlistwtags.csv')
         df = df.fillna('')
         df['allergy'] = df['allergy'].fillna("[]")
-        df['image_url'] = df['image_url'].fillna("https://example.com/placeholder.jpg")
+        df['image'] = df['image_url'].fillna("https://example.com/placeholder.jpg")
         df = df.drop_duplicates(subset='Dish')
 
         # Convert string representations to Python objects
