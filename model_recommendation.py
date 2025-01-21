@@ -21,8 +21,8 @@ class MealRecommender:
         self.used_meals: Set[str] = set()
         self.nutrition_targets = nutrition_targets
         self.num_sections = num_sections
-        self.target_per_vertical = self.nutrition_targets.daily_calories / self.num_sections
-        self.vertical_indices = {0: [], 1: [], 2: []}  # Track meals by vertical index
+        self.target_per_meal = self.nutrition_targets.daily_calories / self.num_sections
+        self.vertical_indices = {0: [], 1: [], 2: []}
 
     @staticmethod
     def calculate_calories(meal: Dict[str, Any]) -> float:
@@ -30,31 +30,31 @@ class MealRecommender:
                 meal['Carbohydrates (g)'] * 4 +
                 meal['Fat (g)'] * 9), 1)
 
-    def get_vertical_total(self, vertical_index: int) -> float:
-        """Get total calories for a vertical index"""
-        return sum(meal['Total Calories'] for meal in self.vertical_indices[vertical_index])
-
-    def get_target_per_position(self, vertical_index: int) -> float:
-        """Calculate target calories for next position in vertical index"""
-        meals_in_vertical = len(self.vertical_indices[vertical_index])
-        remaining_positions = self.num_sections - meals_in_vertical
-        if remaining_positions <= 0:
-            return 0
-
-        current_total = self.get_vertical_total(vertical_index)
-        remaining_target = self.target_per_vertical - current_total
-        return remaining_target / remaining_positions
-
-    def select_best_meal(self, filtered_meals: pd.DataFrame, target_calories: float) -> Dict[str, Any]:
+    def select_meal_for_target(self,
+                             available_meals: pd.DataFrame,
+                             target_calories: float) -> Dict[str, Any]:
         """Select meal closest to target calories"""
-        if filtered_meals.empty:
+        if available_meals.empty:
             return None
 
-        # Calculate calories for all meals
-        filtered_meals.loc[:, 'calories'] = filtered_meals.apply(
+        available_meals.loc[:, 'calories'] = available_meals.apply(
             lambda row: self.calculate_calories(row), axis=1
         )
-        filtered_meals.loc[:, 'calories_diff'] = abs(filtered_meals['calories'] - target_calories)
+
+        # Allow 20% deviation from target
+        max_allowed = target_calories * 1.2
+        min_allowed = target_calories * 0.8
+        filtered_meals = available_meals[
+            (available_meals['calories'] >= min_allowed) &
+            (available_meals['calories'] <= max_allowed)
+        ]
+
+        if filtered_meals.empty:
+            filtered_meals = available_meals
+
+        filtered_meals.loc[:, 'calories_diff'] = abs(
+            filtered_meals['calories'] - target_calories
+        )
 
         best_meal = filtered_meals.nsmallest(1, 'calories_diff').iloc[0].to_dict()
         best_meal['Total Calories'] = best_meal['calories']
@@ -64,24 +64,23 @@ class MealRecommender:
                     preferred_cuisines: List[str],
                     allergies: List[str],
                     required_tags: List[str] = None,
-                    vertical_index: int = 0) -> Dict[str, Any]:
+                    target_calories: float = None,
+                    vertical_index: int = 0) -> List[Dict[str, Any]]:
 
-        target_calories = self.get_target_per_position(vertical_index)
-        print(f"\nProcessing vertical index {vertical_index}")
-        print(f"Current total: {self.get_vertical_total(vertical_index)}")
-        print(f"Target for this position: {target_calories}")
+        print(f"\nFiltering meals for vertical index {vertical_index}")
+        print(f"Target calories: {target_calories}")
 
-        available_meals = self.df[~self.df['Dish'].isin(self.used_meals)]
+        available_meals = self.df[~self.df['Dish'].isin(self.used_meals)].copy()
 
         if preferred_cuisines:
             cuisine_filter = available_meals['cuisines'].apply(
                 lambda x: any(cuisine in x for cuisine in preferred_cuisines)
             )
-            filtered_meals = available_meals[cuisine_filter].copy()
+            filtered_meals = available_meals[cuisine_filter]
             if len(filtered_meals) < 1:
-                filtered_meals = available_meals.copy()
+                filtered_meals = available_meals
         else:
-            filtered_meals = available_meals.copy()
+            filtered_meals = available_meals
 
         if allergies:
             filtered_meals = filtered_meals[
@@ -96,38 +95,77 @@ class MealRecommender:
             )
             filtered_meals = filtered_meals[tag_filter]
 
-        selected_meal = self.select_best_meal(filtered_meals, target_calories)
+        selected_meal = self.select_meal_for_target(
+            filtered_meals,
+            target_calories
+        )
 
         if selected_meal:
             self.used_meals.add(selected_meal['Dish'])
             self.vertical_indices[vertical_index].append(selected_meal)
             print(f"Selected {selected_meal['Dish']} with {selected_meal['Total Calories']} calories")
-            print(f"New total for vertical index {vertical_index}: {self.get_vertical_total(vertical_index)}")
+            return [selected_meal]
 
-        return selected_meal
+        return []
 
     def get_section_meals(self,
-                         section_index: int,
-                         preferred_cuisines: List[str],
-                         allergies: List[str],
-                         items_per_section: int) -> List[Dict[str, Any]]:
+                     section_index: int,
+                     preferred_cuisines: List[str],
+                     allergies: List[str],
+                     items_per_section: int) -> List[Dict[str, Any]]:
         section_meals = []
 
-        for vertical_index in range(items_per_section):
-            tags = None
-            if section_index == 0:
-                tags = ['Breakfast'] if vertical_index == 0 else None
-            elif section_index == self.num_sections - 1:
-                tags = ['Snacks'] if vertical_index == 0 else None
+        if section_index == 0:
+            # First get 3 breakfast items
+            for _ in range(items_per_section):
+                breakfast = self.filter_meals(
+                    preferred_cuisines,
+                    allergies,
+                    ['Breakfast'],
+                    target_calories=self.target_per_meal * 0.6  # ~240 calories
+                )
+                if breakfast:
+                    section_meals.extend(breakfast)
 
-            meal = self.filter_meals(
-                preferred_cuisines=preferred_cuisines,
-                allergies=allergies,
-                required_tags=tags,
-                vertical_index=vertical_index
-            )
-            if meal:
-                section_meals.append(meal)
+            # Then get 3 drink items
+            for _ in range(items_per_section):
+                drink = self.filter_meals(
+                    preferred_cuisines,
+                    allergies,
+                    ['Drinks'],
+                    target_calories=self.target_per_meal * 0.4  # ~160 calories
+                )
+                if drink:
+                    section_meals.extend(drink)
+
+        else:
+            # For all other sections, get exactly 3 items
+            for _ in range(items_per_section):
+                if section_index == self.num_sections - 1:
+                    # Last section: try snacks first
+                    meal = self.filter_meals(
+                        preferred_cuisines,
+                        allergies,
+                        ['Snacks'],
+                        target_calories=self.target_per_meal  # ~400 calories
+                    )
+                    if not meal:
+                        # Fallback to drinks if no snacks available
+                        meal = self.filter_meals(
+                            preferred_cuisines,
+                            allergies,
+                            ['Drinks'],
+                            target_calories=self.target_per_meal
+                        )
+                else:
+                    # Middle sections: regular meals
+                    meal = self.filter_meals(
+                        preferred_cuisines,
+                        allergies,
+                        target_calories=self.target_per_meal  # ~400 calories
+                    )
+                if meal:
+                    section_meals.extend(meal)
 
         return section_meals
 
@@ -176,7 +214,8 @@ def handle_recommendations():
         if isinstance(allergies, str):
             allergies = [allergies]
 
-        print(f"Processing request - Target per vertical index: {daily_target/num_meals}")
+        print(f"Processing request - Daily target: {daily_target}")
+        print(f"Target per meal: {daily_target/num_meals}")
 
         df = load_data()
         recommender = MealRecommender(df, nutrition_targets, num_meals)
@@ -188,6 +227,7 @@ def handle_recommendations():
             )
             meal_sections.append(section_meals)
 
+        # Calculate vertical sums
         index_calories = {}
         for i in range(items_per_section):
             total_calories = sum(
