@@ -1,19 +1,24 @@
 branch-defaults:
   default:
     environment: nutri-flask-env5
+  develop:
+    environment: nutri-flask-env5
+    group_suffix: null
 environment-defaults:
   nutri-flask-env5:
     branch: null
     repository: null
 global:
   application_name: nutri-model
+  branch: null
   default_ec2_keyname: nutri-eb
-  default_platform: Python 3.9 running on 64bit Amazon Linux 2023
+  default_platform: Python 3.11
   default_region: us-east-2
   include_git_submodules: true
   instance_profile: null
   platform_name: null
   platform_version: null
   profile: eb-cli
-  sc: null
+  repository: null
+  sc: git
   workspace_type: Application

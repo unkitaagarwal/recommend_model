@@ -5,6 +5,11 @@ from typing import List, Dict, Set, Any
 from dataclasses import dataclass
 
 app = Flask(__name__)
+application = app
+
+@app.get("/")
+def root_health_check():
+    return "OK", 200
 
 @dataclass
 class NutritionTargets:
@@ -224,4 +229,4 @@ def recommend_meals():
     })
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=8080)
