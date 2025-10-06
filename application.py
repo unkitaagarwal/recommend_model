@@ -181,7 +181,7 @@ def recommend_meals():
         calories_per_section=data["daily_target"] / data["num_meals"]
     )
 
-    df = pd.read_csv("Foodlist.csv")
+    df = pd.read_csv("Foodlist_10_05.csv")
     df['tags'] = df['Tags'].apply(json.loads)
     df['cuisines'] = df['cuisines'].apply(json.loads)
     df['allergy'] = df['allergy'].apply(json.loads)
